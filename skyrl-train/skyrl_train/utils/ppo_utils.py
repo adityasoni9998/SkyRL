@@ -647,6 +647,32 @@ def gspo_policy_loss(
     # Compute clipping ratio for monitoring
     clip_ratio = masked_mean((-surr2 > -surr1).float(), loss_mask).mean().detach().item()
 
+    # Apply sequence-level truncated importance sampling if enabled
+    if config.use_tis:
+        from loguru import logger as logger_  # have to do lazy import to avoid pickling error
+
+        logger_.info(f"Using sequence-level TIS with dtype: {rollout_logprobs.dtype}")
+        # Compute sequence-level TIS importance ratio, reusing the same pattern as log_importance_weights
+        # For TIS, we need: exp(masked_mean(old_log_probs - rollout_logprobs, loss_mask, dim=-1))
+        log_tis_ratio = old_log_probs - rollout_logprobs
+        seq_tis_log_ratio = masked_mean(log_tis_ratio, loss_mask, dim=-1).unsqueeze(-1)
+        # Clamp before exp to avoid overflow
+        seq_tis_imp_ratio = _safe_exp_delta(seq_tis_log_ratio, clip=20.0, out_dtype=log_probs.dtype)
+        seq_tis_imp_ratio = torch.clamp(seq_tis_imp_ratio, max=config.tis_imp_ratio_cap)
+        # Apply the sequence-level importance ratio to the loss (broadcasts across tokens)
+        loss = loss * seq_tis_imp_ratio
+
+    """
+    if config.use_mis:
+    log_mis_ratio = old_log_probs - rollout_logprobs
+    seq_mis_log_ratio = masked_mean(log_mis_ratio, loss_mask, dim=-1).unsqueeze(-1)
+    seq_mis_imp_ratio = _safe_exp_delta(seq_mis_log_ratio, clip=20.0, out_dtype=log_probs.dtype)
+    
+    # Binary mask: keep if ratio <= threshold, discard otherwise
+    mis_mask = (seq_mis_imp_ratio <= config.mis_threshold).float()
+    loss = loss * mis_mask
+    """
+
     loss = reduce_loss(loss, loss_mask, loss_reduction, config.max_seq_len)
 
     return loss, clip_ratio
