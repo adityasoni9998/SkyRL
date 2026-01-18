@@ -279,12 +279,12 @@ def validate_cfg(cfg: DictConfig):
             raise ValueError(
                 f"If `trainer.algorithm.use_tis` is `True` then `cfg.trainer.algorithm.tis_imp_ratio_cap` should be > 0, got {cfg.trainer.algorithm.tis_imp_ratio_cap }"
             )
-        if cfg.generator.sampling_params.logprobs is None:
-            logger.warning(
-                "`generator.sampling_params.logprobs` is `None` but `trainer.algorithm.use_tis` is `True`. Setting `logprobs` to `True`."
-            )
-            # just set to 0 for better user exp
-            cfg.generator.sampling_params.logprobs = 0
+        # if cfg.generator.sampling_params.logprobs is None:
+        #     logger.warning(
+        #         "`generator.sampling_params.logprobs` is `None` but `trainer.algorithm.use_tis` is `True`. Setting `logprobs` to `True`."
+        #     )
+        #     # just set to 0 for better user exp
+        #     cfg.generator.sampling_params.logprobs = 0
 
         if cfg.generator.backend == "sglang":
             raise NotImplementedError("`trainer.algorithm.use_tis` doesn't support Sglang backend, please use vLLM")
