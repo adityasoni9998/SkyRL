@@ -332,7 +332,11 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
                     self._staleness_manager.load_state_from_checkpoint(
                         self.global_step + 1
                     )  # +1 due to we haven't incremented yet
-                    expected_consumed_in_epoch = self.mini_batch_size * (self.global_step % self.num_steps_per_epoch)
+                    steps_completed_in_epoch = self.global_step % self.num_steps_per_epoch
+                    if steps_completed_in_epoch == 0 and len(loaded_consumed_data_uids_set) > 0:
+                        # When resuming mid-epoch at the boundary, treat modulo 0 as a full epoch.
+                        steps_completed_in_epoch = self.num_steps_per_epoch
+                    expected_consumed_in_epoch = self.mini_batch_size * steps_completed_in_epoch
                     assert len(loaded_consumed_data_uids_set) == expected_consumed_in_epoch, (
                         "Unexpected number of consumed data UIDs. Got: "
                         f"{len(loaded_consumed_data_uids_set)} != {expected_consumed_in_epoch}"
@@ -440,7 +444,11 @@ class FullyAsyncRayPPOTrainer(RayPPOTrainer):
 
                 # 7. Notify generation workers that the capacity has increased, unblocking them.
                 await self._staleness_manager.notify_capacity_change(self.global_step)
-                expected_consumed_in_epoch = self.mini_batch_size * ((self.global_step - 1) % self.num_steps_per_epoch)
+                steps_completed_in_epoch = (self.global_step - 1) % self.num_steps_per_epoch
+                if steps_completed_in_epoch == 0:
+                    # At the end of an epoch, modulo becomes 0 but we've consumed a full epoch.
+                    steps_completed_in_epoch = self.num_steps_per_epoch
+                expected_consumed_in_epoch = self.mini_batch_size * steps_completed_in_epoch
                 actual_consumed_in_epoch = len(self.async_train_dataloader.get_consumed_uids_list())
                 assert actual_consumed_in_epoch == expected_consumed_in_epoch, (
                     "Unexpected number of consumed data UIDs. Got: "
