@@ -38,13 +38,14 @@ apptainer shell \
     --hostname "$(hostname -s)" \
     --bind "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem,/etc/pki/tls/certs:/etc/pki/tls/certs" \
     /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif 
-source /work1/grahamneubig/adityabs/.tinker_venv/bin/activate
-rm -rf skyrl/tinker/tinker.db*
-rm -rf /tmp/skyrl*
 ```
 
 ## Launch the Tinker Server
 ```bash
+source /work1/grahamneubig/adityabs/.tinker_venv/bin/activate
+rm -rf skyrl/tinker/tinker.db*
+rm -rf /tmp/skyrl*
+
 HOME=/tmp SKYRL_RAY_NUM_CPUS=64 uv run --active --no-sync --extra tinker --extra fsdp \
     -m skyrl.tinker.api \
     --base-model Qwen/Qwen3-4B-Instruct-2507 \
