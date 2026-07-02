@@ -26,7 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tinker = [
-    "tinker==0.16.1",
+    "tinker>=0.3.0",
     "fastapi[standard]",
     "sqlmodel",
     "sqlalchemy[asyncio]",
@@ -82,7 +82,7 @@ skyrl-gym = { path = "./skyrl-gym", editable = true }
 
 vllm-router = [
     { url = "https://github.com/SumanthRH/router/releases/download/0.1.14.post1/vllm_router-0.1.14-cp38-abi3-manylinux_2_35_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-    { url = "https://github.com/SumanthRH/router/releases/download/0.1.14.post1/vllm_router-0.1.14-cp38-abi3-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { url = "https://github.com/SumanthRH/router/releases/download/0.1.14.post1/vllm_router-0.1.14-cp38-abi3-linux_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }
 ]
 
 [tool.black]

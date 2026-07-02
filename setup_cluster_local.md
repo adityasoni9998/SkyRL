@@ -13,19 +13,19 @@ apptainer pull /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif do
 
 ## Install Dependencies
 ```bash
-cd /work1/grahamneubig/adityabs/skyrl_tinker_amd/
+cd /work1/grahamneubig/adityabs/skyrl_max_tokens_per_microbatch
 apptainer shell \
     --hostname "$(hostname -s)" \
     --bind "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem,/etc/pki/tls/certs:/etc/pki/tls/certs" \
     /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif 
 cp pyproject.toml pyproject.toml.bak
 cp pyproject.other.toml pyproject.toml
-python -m venv --system-site-packages /work1/grahamneubig/adityabs/.tinker_venv/
-source /work1/grahamneubig/adityabs/.tinker_venv/bin/activate
-/work1/grahamneubig/adityabs/.tinker_venv/bin/python -m pip install -e '.[fsdp,tinker]'
-/work1/grahamneubig/adityabs/.tinker_venv/bin/python -m pip install -U ray[all]==2.51.1
-/work1/grahamneubig/adityabs/.tinker_venv/bin/python -m pip install flash-linear-attention[rocm]
-/work1/grahamneubig/adityabs/.tinker_venv/bin/python -m pip install orjson torchdata
+python -m venv --system-site-packages /work1/grahamneubig/adityabs/.skyrl_venv/
+source /work1/grahamneubig/adityabs/.skyrl_venv/bin/activate
+/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install -e '.[fsdp,tinker]'
+/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install -U ray[all]==2.51.1
+/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install flash-linear-attention[rocm]
+/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install orjson torchdata
 cp pyproject.toml.bak pyproject.toml
 rm -rf pyproject.toml.bak
 ```
@@ -33,7 +33,7 @@ rm -rf pyproject.toml.bak
 ## Launch Fresh Apptainer Shell
 
 ```bash
-cd /work1/grahamneubig/adityabs/skyrl_tinker_amd/
+cd /work1/grahamneubig/adityabs/skyrl_max_tokens_per_microbatch
 apptainer shell \
     --hostname "$(hostname -s)" \
     --bind "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem,/etc/pki/tls/certs:/etc/pki/tls/certs" \
@@ -42,11 +42,11 @@ apptainer shell \
 
 ## Launch the Tinker Server
 ```bash
-source /work1/grahamneubig/adityabs/.tinker_venv/bin/activate
+source /work1/grahamneubig/adityabs/.skyrl_venv/bin/activate
 rm -rf skyrl/tinker/tinker.db*
 rm -rf /tmp/skyrl*
 
-HOME=/tmp SKYRL_RAY_NUM_CPUS=64 uv run --active --no-sync --extra tinker --extra fsdp \
+HOME=/tmp SKYRL_RAY_NUM_CPUS=256 uv run --active --no-sync --extra tinker --extra fsdp \
     -m skyrl.tinker.api \
     --base-model Qwen/Qwen3-4B-Instruct-2507 \
     --backend fsdp \
@@ -55,15 +55,16 @@ HOME=/tmp SKYRL_RAY_NUM_CPUS=64 uv run --active --no-sync --extra tinker --extra
         "trainer.placement.colocate_all": false,
         "trainer.placement.policy_num_nodes": 1,
         "trainer.placement.policy_num_gpus_per_node": 2,
-        "trainer.micro_train_batch_size_per_gpu": 32,
-        "trainer.micro_forward_batch_size_per_gpu": 32,
+        "trainer.max_tokens_per_microbatch": 96000,
+        "trainer.use_expandable_segments": false,
 
         "generator.inference_engine.num_engines": 6,
-        "generator.inference_engine.max_num_batched_tokens": 32768,
+        "generator.inference_engine.max_num_batched_tokens": 131072,
         "generator.inference_engine.enable_ray_prometheus_stats": false,
         "generator.inference_engine.gpu_memory_utilization": 0.8,
-        "generator.inference_engine.max_num_seqs": 256,
-        "generator.inference_engine.engine_init_kwargs.max_model_len": 32768
+        "generator.inference_engine.max_num_seqs": 1024,
+        "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+        "generator.inference_engine.use_expandable_segments": false
     }'
 ```
 
