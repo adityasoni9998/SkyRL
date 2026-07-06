@@ -51,19 +51,51 @@ HOME=/tmp SKYRL_RAY_NUM_CPUS=256 uv run --active --no-sync --extra tinker --extr
     --base-model Qwen/Qwen3-4B-Instruct-2507 \
     --backend fsdp \
     --port 9000 \
+    --checkpoints-base /work1/grahamneubig/adityabs/skyrl_checkpoints \
     --backend-config '{
         "trainer.placement.colocate_all": false,
         "trainer.placement.policy_num_nodes": 1,
-        "trainer.placement.policy_num_gpus_per_node": 2,
+        "trainer.placement.policy_num_gpus_per_node": 4,
         "trainer.max_tokens_per_microbatch": 96000,
         "trainer.use_expandable_segments": false,
 
-        "generator.inference_engine.num_engines": 6,
+        "generator.inference_engine.num_engines": 4,
         "generator.inference_engine.max_num_batched_tokens": 131072,
-        "generator.inference_engine.enable_ray_prometheus_stats": false,
-        "generator.inference_engine.gpu_memory_utilization": 0.8,
-        "generator.inference_engine.max_num_seqs": 1024,
+        "generator.inference_engine.enable_ray_prometheus_stats": true,
+        "generator.inference_engine.engine_init_kwargs.enable_mfu_metrics": true,
+        "generator.inference_engine.gpu_memory_utilization": 0.9,
+        "generator.inference_engine.max_num_seqs": 2048,
         "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+        "generator.inference_engine.use_expandable_segments": false
+    }'
+```
+
+```bash
+export VLLM_ROCM_USE_AITER=1
+export HOME=/tmp
+export SKYRL_RAY_NUM_CPUS=256
+VLLM_ROCM_USE_AITER=1 HOME=/tmp SKYRL_RAY_NUM_CPUS=256 uv run --active --no-sync --extra tinker --extra fsdp \
+    -m skyrl.tinker.api \
+    --base-model Qwen/Qwen3-4B-Instruct-2507 \
+    --backend fsdp \
+    --port 9000 \
+    --checkpoints-base /work1/grahamneubig/adityabs/skyrl_checkpoints \
+    --backend-config '{
+        "trainer.placement.colocate_all": false,
+        "trainer.placement.policy_num_nodes": 1,
+        "trainer.placement.policy_num_gpus_per_node": 4,
+        "trainer.max_tokens_per_microbatch": 96000,
+        "trainer.use_expandable_segments": false,
+
+        "generator.inference_engine.num_engines": 4,
+        "generator.inference_engine.max_num_batched_tokens": 131072,
+        "generator.inference_engine.enable_ray_prometheus_stats": true,
+        "generator.inference_engine.engine_init_kwargs.enable_mfu_metrics": true,
+        "generator.inference_engine.gpu_memory_utilization": 0.9,
+        "generator.inference_engine.max_num_seqs": 512,
+        "generator.inference_engine.enforce_eager": false,
+        "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+        "generator.inference_engine.engine_init_kwargs.attention_backend": "ROCM_AITER_FA",
         "generator.inference_engine.use_expandable_segments": false
     }'
 ```

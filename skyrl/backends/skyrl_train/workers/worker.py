@@ -765,7 +765,7 @@ class PolicyWorkerBase(Worker):
             max_tokens_per_microbatch=self.cfg.max_tokens_per_microbatch,
         )
         all_metrics = defaultdict(list)
-        all_loss_fn_outputs = []  # Handle separately from scalar metrics
+        loss_fn_outputs_by_microbatch = []  # Handle separately from scalar metrics
 
         for microbatch in microbatch_iterator:
             experience = BaseBatchIterator.batch_to_experience(microbatch)
@@ -776,7 +776,9 @@ class PolicyWorkerBase(Worker):
 
             # Extract loss_fn_outputs before reduce_metrics (it's not a scalar metric)
             if "loss_fn_outputs" in metrics:
-                all_loss_fn_outputs.extend(metrics.pop("loss_fn_outputs"))
+                loss_fn_outputs_by_microbatch.append(metrics.pop("loss_fn_outputs"))
+            else:
+                loss_fn_outputs_by_microbatch.append([])
 
             for k, v in metrics.items():
                 all_metrics[k].append(v)
@@ -801,6 +803,25 @@ class PolicyWorkerBase(Worker):
         dp_group = self.device_mesh.get_group("dp")
         result = all_reduce_metrics(result, self.strategy, group=dp_group, sum_loss_metrics=sum_loss_metrics)
 
+        if self.cfg.max_tokens_per_microbatch > 0:
+            all_loss_fn_outputs = [None] * len(data)
+
+            for mb_idx, original_indices in enumerate(microbatch_iterator._microbatches):
+                mb_outputs = loss_fn_outputs_by_microbatch[mb_idx]
+                if len(mb_outputs) != len(original_indices):
+                    raise ValueError(
+                        f"loss_fn_outputs length mismatch: {len(mb_outputs)} outputs "
+                        f"for {len(original_indices)} samples"
+                    )
+                for sample_idx, original_idx in enumerate(original_indices):
+                    all_loss_fn_outputs[original_idx] = mb_outputs[sample_idx]
+
+            if any(output is None for output in all_loss_fn_outputs):
+                raise ValueError("Missing loss_fn_outputs after token-based reorder")
+        else:
+            all_loss_fn_outputs = [
+                output for mb_outputs in loss_fn_outputs_by_microbatch for output in mb_outputs
+            ]
         return WorkerOutput(loss_fn_outputs=all_loss_fn_outputs, metrics=result)
 
     def _forward_backward_micro(
