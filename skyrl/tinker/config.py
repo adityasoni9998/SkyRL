@@ -25,6 +25,10 @@ class EngineConfig(BaseModel):
         default=AnyPath("/tmp/skyrl_checkpoints"),
         description="Base path where checkpoints will be stored",
     )
+    max_checkpoints_to_keep: int = Field(
+        default=-1,
+        description="Number of most recent checkpoints to keep per model and checkpoint type. -1 disables cleanup.",
+    )
     database_url: str = Field(
         default=f'sqlite:///{Path(__file__).parent / "tinker.db"}',
         description="Database URL (e.g., postgresql://user:password@localhost:5432/tinker). If not set, uses SKYRL_DATABASE_URL env var or defaults to SQLite",

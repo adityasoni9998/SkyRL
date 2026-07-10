@@ -54,6 +54,8 @@ def build_engine_runtime_env(
     env_vars: Dict[str, str] = {}
     if use_expandable_segments:
         env_vars["PYTORCH_CUDA_ALLOC_CONF"] = _alloc_conf_with_expandable_segments()
+    if os.environ.get("SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE"):
+        env_vars["SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE"] = os.environ["SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE"]
     if extra_env_vars:
         env_vars.update(extra_env_vars)
     if not env_vars:

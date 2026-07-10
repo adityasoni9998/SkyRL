@@ -2,6 +2,7 @@
 
 import argparse
 import time
+from collections import defaultdict, deque
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -267,6 +268,9 @@ class TinkerEngine:
 
         # Track last cleanup time for periodic stale session cleanup
         self._last_cleanup_time: float = time.time()
+        self._checkpoint_fifos: dict[str, dict[types.CheckpointType, deque[str]]] = defaultdict(
+            lambda: defaultdict(deque)
+        )
 
         logger.info(f"Initialized TinkerEngine with backend={type(self.backend).__name__}")
 
@@ -288,6 +292,39 @@ class TinkerEngine:
             row.updated_at = datetime.now(timezone.utc)
             session.add(row)
             session.commit()
+
+    def _checkpoint_output_path(self, model_id: str, checkpoint_id: str, checkpoint_type: types.CheckpointType) -> AnyPath:
+        if checkpoint_type == types.CheckpointType.SAMPLER:
+            return self.config.checkpoints_base / model_id / "sampler_weights" / f"{checkpoint_id}.tar.gz"
+        return self.config.checkpoints_base / model_id / f"{checkpoint_id}.tar.gz"
+
+    def _retain_recent_checkpoints(
+        self, model_id: str, checkpoint_id: str, checkpoint_type: types.CheckpointType
+    ) -> None:
+        max_checkpoints = self.config.max_checkpoints_to_keep
+        if max_checkpoints < 0:
+            return
+
+        fifo = self._checkpoint_fifos[model_id][checkpoint_type]
+        fifo.append(checkpoint_id)
+
+        while len(fifo) > max_checkpoints:
+            old_checkpoint_id = fifo.popleft()
+            old_checkpoint_path = self._checkpoint_output_path(model_id, old_checkpoint_id, checkpoint_type)
+            try:
+                if old_checkpoint_path.exists():
+                    old_checkpoint_path.unlink()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to delete old checkpoint file {old_checkpoint_path} "
+                    f"for model {model_id}, type {checkpoint_type}: {e}"
+                )
+
+            with Session(self.db_engine) as session:
+                checkpoint_db = session.get(CheckpointDB, (model_id, old_checkpoint_id, checkpoint_type))
+                if checkpoint_db is not None:
+                    session.delete(checkpoint_db)
+                    session.commit()
 
     @contextmanager
     def _checkpoint_status_context(self, model_id: str, checkpoint_id: str, checkpoint_type: types.CheckpointType):
@@ -626,6 +663,7 @@ class TinkerEngine:
         with self._checkpoint_status_context(model_id, checkpoint_id, types.CheckpointType.TRAINING):
             self.backend.save_checkpoint(output_path, model_id)
             logger.info(f"Saved trimmed training checkpoint for model {model_id} to {output_path}")
+        self._retain_recent_checkpoints(model_id, checkpoint_id, types.CheckpointType.TRAINING)
 
         return types.SaveWeightsOutput(
             path=f"tinker://{model_id}/weights/{checkpoint_id}",
@@ -651,6 +689,7 @@ class TinkerEngine:
         with self._checkpoint_status_context(model_id, checkpoint_id, types.CheckpointType.SAMPLER):
             self.backend.save_sampler_checkpoint(output_path, model_id, persist=persist)
             logger.info(f"Saved sampler checkpoint for model {model_id} to {output_path}")
+        self._retain_recent_checkpoints(model_id, checkpoint_id, types.CheckpointType.SAMPLER)
 
         # Return path=None when using sampling_session_seq_id and seq_id (SDK expects this)
         if request_data.sampling_session_seq_id is not None and request_data.seq_id is not None:

@@ -2,6 +2,8 @@
 
 ```bash
 source ../.venv/bin/activate
+ray stop --force
+rm -rf /tmp/skyrl-tinker
 mkdir -p /tmp/skyrl-tinker
 mkdir -p /tmp/skyrl_checkpoints
 export SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE=1
@@ -12,6 +14,7 @@ SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE=1 HOME=/tmp uv run --active --no-sync --extr
     --port 9000 \
     --database-url sqlite:////tmp/skyrl-tinker/tinker.db \
     --checkpoints-base /tmp/skyrl_checkpoints \
+    --max-checkpoints-to-keep 3 \
     --backend-config '{
         "trainer.placement.colocate_all": false,
         "trainer.placement.policy_num_nodes": 1,
