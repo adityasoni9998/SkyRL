@@ -1,36 +1,6 @@
-# This is only meant for my personal use on AMD cluster. Refer to setup.md for a machine agnostic setup.
-# Start SkyRL tinker server on AMD GPUs
+# Tinker Server Startup Instructions for AMD GPUs
 
-## Pull apptainer
-
-```bash
-export APPTAINER_CACHEDIR="/work1/grahamneubig/adityabs/apptainer_cache_dir"
-mkdir $APPTAINER_CACHEDIR 
-export APPTAINER_TMPDIR="/tmp/apptainer_tmp"
-mkdir $APPTAINER_TMPDIR
-apptainer pull /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif docker://docker.io/vllm/vllm-openai-rocm:v0.20.2
-```
-
-## Install Dependencies
-```bash
-cd /work1/grahamneubig/adityabs/skyrl_max_tokens_per_microbatch
-apptainer shell \
-    --hostname "$(hostname -s)" \
-    --bind "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem:/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem,/etc/pki/tls/certs:/etc/pki/tls/certs" \
-    /work1/grahamneubig/adityabs/vllm_vllm-openai-rocm_v0.20.2.sif 
-cp pyproject.toml pyproject.toml.bak
-cp pyproject.other.toml pyproject.toml
-python -m venv --system-site-packages /work1/grahamneubig/adityabs/.skyrl_venv/
-source /work1/grahamneubig/adityabs/.skyrl_venv/bin/activate
-/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install -e '.[fsdp,tinker]'
-/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install -U ray[all]==2.51.1
-/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install flash-linear-attention[rocm]
-/work1/grahamneubig/adityabs/.skyrl_venv/bin/python -m pip install orjson torchdata
-cp pyproject.toml.bak pyproject.toml
-rm -rf pyproject.toml.bak
-```
-
-## Launch Fresh Apptainer Shell
+## Launch Apptainer Shell
 
 ```bash
 cd /work1/grahamneubig/adityabs/skyrl_max_tokens_per_microbatch
@@ -43,15 +13,13 @@ apptainer shell \
 ## Launch the Tinker Server
 ```bash
 source /work1/grahamneubig/adityabs/.skyrl_venv/bin/activate
-rm -rf skyrl/tinker/tinker.db*
-rm -rf /tmp/skyrl*
-rm -rf /tmp/skyrl-tinker
 mkdir -p /tmp/skyrl-tinker
+ray stop --force
 
 export VLLM_ROCM_USE_AITER=1
 export HOME=/tmp
 export SKYRL_RAY_NUM_CPUS=256
-VLLM_ROCM_USE_AITER=1 HOME=/tmp SKYRL_RAY_NUM_CPUS=256 uv run --active --no-sync --extra tinker --extra fsdp \
+uv run --active --no-sync --extra tinker --extra fsdp \
     -m skyrl.tinker.api \
     --base-model Qwen/Qwen3-4B-Instruct-2507 \
     --backend fsdp \
@@ -79,7 +47,7 @@ VLLM_ROCM_USE_AITER=1 HOME=/tmp SKYRL_RAY_NUM_CPUS=256 uv run --active --no-sync
 ```
 
 ## Forward Port to Babel
--NOTE: Edit /home1/adityabs/.ssh/config and add the right babel-compute-node name if needed.
+- NOTE: Edit /home1/adityabs/.ssh/config and add the right babel-compute-node name if needed.
 ```bash
 ssh -N -R 0.0.0.0:9000:localhost:9000 babel-compute-node
 ```

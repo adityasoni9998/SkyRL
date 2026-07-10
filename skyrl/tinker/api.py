@@ -984,7 +984,7 @@ async def load_weights(request: LoadWeightsRequest, req: Request, session: Async
             status_code=400, detail="request.path must be in format tinker://source_model_id/weights/checkpoint_id"
         )
 
-    await validate_checkpoint(req, source_model_id, checkpoint_id, types.CheckpointType.TRAINING, session)
+    await validate_training_checkpoint_for_load(req, source_model_id, checkpoint_id, session)
 
     request_id = await create_future(
         session=session,
@@ -1226,6 +1226,34 @@ async def validate_checkpoint(
 
     subdir = "sampler_weights" if checkpoint_type == types.CheckpointType.SAMPLER else ""
     return request.app.state.engine_config.checkpoints_base / unique_id / subdir / f"{checkpoint_id}.tar.gz"
+
+
+async def validate_training_checkpoint_for_load(
+    request: Request, unique_id: str, checkpoint_id: str, session: AsyncSession
+):
+    """Validate a training checkpoint for load_weights.
+
+    Fresh Slurm jobs can start with an empty SQLite DB while reusing persistent
+    checkpoint archives. For load_weights, the archive itself is sufficient:
+    the backend loads from checkpoints_base/<model_id>/<checkpoint_id>.tar.gz.
+    Other checkpoint APIs still require DB metadata.
+    """
+    try:
+        return await validate_checkpoint(request, unique_id, checkpoint_id, types.CheckpointType.TRAINING, session)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+
+    checkpoint_path = request.app.state.engine_config.checkpoints_base / unique_id / f"{checkpoint_id}.tar.gz"
+    try:
+        exists = checkpoint_path.exists()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Checkpoint not found: {unique_id}/{checkpoint_id}") from e
+
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Checkpoint not found: {unique_id}/{checkpoint_id}")
+
+    return checkpoint_path
 
 
 @app.get("/api/v1/training_runs")
