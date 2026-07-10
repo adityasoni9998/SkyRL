@@ -27,7 +27,7 @@ Usage:
 """
 
 import torch
-
+import os
 # Workaround for a vLLM layerwise-reload corruption affecting NemotronH/Mamba.
 # MambaMixer2 registers `conv_weights` as a non-persistent buffer that is a
 # view of `self.conv1d.weight.data` (shared storage). vLLM's reload code path
@@ -60,6 +60,8 @@ VLLM_NEW_INFERENCE_WORKER_EXTENSION_CLS = f"{__name__}.NewInferenceWorkerWrap"
 
 def _empty_cuda_cache() -> None:
     """Release unused CUDA/ROCm cached blocks after full-weight sync."""
+    if os.environ.get("SKYRL_DISABLE_VLLM_CLEAR_CUDA_CACHE", "0") == "1":
+        return
     if not torch.cuda.is_available():
         return
 
