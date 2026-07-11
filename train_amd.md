@@ -13,6 +13,7 @@ apptainer shell \
 ## Launch the Tinker Server
 ```bash
 source /work1/grahamneubig/adityabs/.skyrl_venv/bin/activate
+rm -rf /tmp/skyrl-tinker
 mkdir -p /tmp/skyrl-tinker
 ray stop --force
 
@@ -26,6 +27,7 @@ uv run --active --no-sync --extra tinker --extra fsdp \
     --port 9000 \
     --database-url sqlite:////tmp/skyrl-tinker/tinker.db \
     --checkpoints-base /work1/grahamneubig/adityabs/skyrl_checkpoints \
+    --max-checkpoints-to-keep 3 \
     --backend-config '{
         "trainer.placement.colocate_all": false,
         "trainer.placement.policy_num_nodes": 1,
@@ -34,7 +36,7 @@ uv run --active --no-sync --extra tinker --extra fsdp \
         "trainer.use_expandable_segments": false,
 
         "generator.inference_engine.num_engines": 4,
-        "generator.inference_engine.max_num_batched_tokens": 65536,
+        "generator.inference_engine.max_num_batched_tokens": 131072,
         "generator.inference_engine.enable_ray_prometheus_stats": true,
         "generator.inference_engine.engine_init_kwargs.enable_mfu_metrics": true,
         "generator.inference_engine.gpu_memory_utilization": 0.9,
