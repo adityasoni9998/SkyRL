@@ -27,6 +27,6 @@ HOME=/tmp SKYRL_RAY_NUM_CPUS=192 uv run --active --no-sync --extra tinker --extr
         "generator.inference_engine.max_num_seqs": 256,
         "generator.inference_engine.enable_prefix_caching": false,
         "generator.inference_engine.enforce_eager": true,
-        "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+        "generator.inference_engine.engine_init_kwargs.max_model_len": 65000,
         "generator.inference_engine.use_expandable_segments": false
     }'
