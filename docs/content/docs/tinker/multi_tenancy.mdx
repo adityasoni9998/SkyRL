@@ -38,6 +38,138 @@ All adapters must share the same `(rank, alpha, target_modules)` signature. Mism
 
 The first `create_model` on a fresh server triggers the policy build and bootstraps the per-tenant adapter slot infrastructure; subsequent `create_model` calls register additional adapter slots and complete in milliseconds. When the *last* registered model is unloaded the server tears down the Ray runtime via `ray.shutdown()`; the next `create_model` rebuilds it.
 
+## Qwen3.5-4B launch on eight GPUs
+
+Both launch variants below use four policy GPUs with TP=1, PP=1, and CP=1, giving DP=4, plus four dedicated TP=1 vLLM engines.
+
+### Fixed numeric microbatch sizes
+
+This conservative baseline puts one sequence in each forward and training microbatch and does not use sequence packing.
+
+```bash
+cd /path/to/SkyRL
+
+export SKYRL_STATE_ROOT=/tmp/skyrl-tinker-state
+mkdir -p "$SKYRL_STATE_ROOT/checkpoints" "$SKYRL_STATE_ROOT/database"
+
+env -u CPATH -u CPLUS_INCLUDE_PATH \
+    CUDA_HOME=/usr/local/cuda \
+    PATH="/usr/local/cuda/bin:$PATH" \
+    SKYRL_RAY_NUM_CPUS=128 \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    uv run --active --no-sync \
+        --extra tinker \
+        --extra megatron \
+        -m skyrl.tinker.api \
+        --host 0.0.0.0 \
+        --port 9000 \
+        --base-model Qwen/Qwen3.5-4B \
+        --backend megatron \
+        --checkpoints-base "$SKYRL_STATE_ROOT/checkpoints" \
+        --database-url "sqlite:///$SKYRL_STATE_ROOT/database/tinker.db" \
+        --backend-config '{
+            "trainer.placement.colocate_all": false,
+            "trainer.placement.policy_num_nodes": 1,
+            "trainer.placement.policy_num_gpus_per_node": 4,
+
+            "trainer.policy.megatron_config.tensor_model_parallel_size": 1,
+            "trainer.policy.megatron_config.pipeline_model_parallel_size": 1,
+            "trainer.policy.megatron_config.context_parallel_size": 1,
+            "trainer.policy.megatron_config.lora_config.merge_lora": false,
+
+            "trainer.policy.language_model_only": true,
+            "trainer.ref.language_model_only": true,
+            "generator.inference_engine.language_model_only": true,
+
+            "trainer.remove_microbatch_padding": false,
+            "trainer.max_tokens_per_microbatch": -1,
+            "trainer.micro_forward_batch_size_per_gpu": 1,
+            "trainer.micro_train_batch_size_per_gpu": 1,
+
+            "trainer.fused_lm_head_logprob": true,
+            "trainer.fused_lm_head_logprob_backend": "torch",
+            "trainer.logprobs_chunk_size": 64,
+            "trainer.use_expandable_segments": true,
+
+            "generator.inference_engine.num_engines": 4,
+            "generator.inference_engine.tensor_parallel_size": 1,
+            "generator.inference_engine.max_num_batched_tokens": 50000,
+            "generator.inference_engine.enable_ray_prometheus_stats": true,
+            "generator.inference_engine.engine_init_kwargs.enable_mfu_metrics": true,
+            "generator.inference_engine.gpu_memory_utilization": 0.8,
+            "generator.inference_engine.max_num_seqs": 256,
+            "generator.inference_engine.enable_prefix_caching": true,
+            "generator.inference_engine.enforce_eager": true,
+            "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+            "generator.inference_engine.use_expandable_segments": false
+        }'
+```
+
+`language_model_only: true` selects Qwen3.5's text backbone consistently in the policy, reference model, and inference engines. `merge_lora: false` is required for Tinker sampling by `model_id`: it keeps adapters separate and lets vLLM register and serve the requested adapter. The fused LM-head path and a log-probability chunk size of 64 limit peak memory from Qwen3.5's large vocabulary.
+
+### Token-budget microbatching
+
+To construct microbatches by token count while keeping THD sequence packing disabled, use the following command. The numeric microbatch-size settings are intentionally omitted because a positive `max_tokens_per_microbatch` takes precedence over them.
+
+```bash
+cd /path/to/SkyRL
+
+export SKYRL_STATE_ROOT=/tmp/skyrl-tinker-state
+mkdir -p "$SKYRL_STATE_ROOT/checkpoints" "$SKYRL_STATE_ROOT/database"
+
+env -u CPATH -u CPLUS_INCLUDE_PATH \
+    CUDA_HOME=/usr/local/cuda \
+    PATH="/usr/local/cuda/bin:$PATH" \
+    SKYRL_RAY_NUM_CPUS=128 \
+    HF_HUB_ENABLE_HF_TRANSFER=1 \
+    uv run --active --no-sync \
+        --extra tinker \
+        --extra megatron \
+        -m skyrl.tinker.api \
+        --host 0.0.0.0 \
+        --port 9000 \
+        --base-model Qwen/Qwen3.5-4B \
+        --backend megatron \
+        --checkpoints-base "$SKYRL_STATE_ROOT/checkpoints" \
+        --database-url "sqlite:///$SKYRL_STATE_ROOT/database/tinker.db" \
+        --backend-config '{
+            "trainer.placement.colocate_all": false,
+            "trainer.placement.policy_num_nodes": 1,
+            "trainer.placement.policy_num_gpus_per_node": 4,
+
+            "trainer.policy.megatron_config.tensor_model_parallel_size": 1,
+            "trainer.policy.megatron_config.pipeline_model_parallel_size": 1,
+            "trainer.policy.megatron_config.context_parallel_size": 1,
+            "trainer.policy.megatron_config.lora_config.merge_lora": false,
+
+            "trainer.policy.language_model_only": true,
+            "trainer.ref.language_model_only": true,
+            "generator.inference_engine.language_model_only": true,
+
+            "trainer.remove_microbatch_padding": false,
+            "trainer.max_tokens_per_microbatch": 32768,
+
+            "trainer.fused_lm_head_logprob": true,
+            "trainer.fused_lm_head_logprob_backend": "torch",
+            "trainer.logprobs_chunk_size": 64,
+            "trainer.use_expandable_segments": true,
+
+            "generator.inference_engine.num_engines": 4,
+            "generator.inference_engine.tensor_parallel_size": 1,
+            "generator.inference_engine.max_num_batched_tokens": 50000,
+            "generator.inference_engine.enable_ray_prometheus_stats": true,
+            "generator.inference_engine.engine_init_kwargs.enable_mfu_metrics": true,
+            "generator.inference_engine.gpu_memory_utilization": 0.8,
+            "generator.inference_engine.max_num_seqs": 256,
+            "generator.inference_engine.enable_prefix_caching": true,
+            "generator.inference_engine.enforce_eager": true,
+            "generator.inference_engine.engine_init_kwargs.max_model_len": 32768,
+            "generator.inference_engine.use_expandable_segments": false
+        }'
+```
+
+The token limit is soft: an individual sequence longer than the budget is placed in a microbatch by itself rather than split.
+
 ## Quickstart — Two SL clients
 
 Run two `tinker-cookbook` `sl_loop` clients in parallel against one Megatron-backed Tinker server.
