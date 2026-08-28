@@ -2,7 +2,7 @@ import os
 import shutil
 from collections import defaultdict
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, cast
 
 import megatron.core.parallel_state as mpu
 import ray
@@ -1254,11 +1254,15 @@ class MegatronPolicyWorkerBase(MegatronWorker, PolicyWorkerBase):
             torch.cuda.empty_cache()
 
         # Aggregate metrics across micro-batches
-        all_loss_fn_outputs = []  # Handle separately from scalar metrics
+        loss_fn_outputs_by_microbatch: List[List[Dict[str, Any]]] = []
         for m_batch, metrics in zip(micro_buffer, metrics_list):
             # Extract loss_fn_outputs before reduce_metrics (it's not a scalar metric)
             if "loss_fn_outputs" in metrics:
-                all_loss_fn_outputs.extend(metrics.pop("loss_fn_outputs"))
+                loss_fn_outputs_by_microbatch.append(
+                    cast(List[Dict[str, Any]], metrics.pop("loss_fn_outputs"))
+                )
+            else:
+                loss_fn_outputs_by_microbatch.append([])
             # Skip fully-padding microbatches: their metrics (clip_ratio=0, policy_entropy=0,
             # ...) are meaningless and would drag down the mean-reduced metrics. Summed
             # metrics (e.g. policy_loss) are unaffected since padding contributes 0, but
@@ -1302,6 +1306,28 @@ class MegatronPolicyWorkerBase(MegatronWorker, PolicyWorkerBase):
             if moe_metrics:
                 for k, v in moe_metrics.items():
                     status[k] = v
+
+        if isinstance(microbatch_iterator, TokenBasedBatchIterator):
+            reordered_loss_fn_outputs: List[Optional[Dict[str, Any]]] = [None] * len(data)
+
+            # Token-based batching reorders samples and Megatron pads every microbatch
+            # to a uniform batch size. Restore the original sample order, ignoring
+            # per-microbatch dummy rows and whole padding microbatches.
+            for mb_idx, original_indices in enumerate(microbatch_iterator._microbatches):
+                mb_outputs = loss_fn_outputs_by_microbatch[mb_idx]
+                if len(mb_outputs) < len(original_indices):
+                    raise ValueError(
+                        f"loss_fn_outputs length mismatch: {len(mb_outputs)} outputs "
+                        f"for {len(original_indices)} real samples"
+                    )
+                for sample_idx, original_idx in enumerate(original_indices):
+                    reordered_loss_fn_outputs[original_idx] = mb_outputs[sample_idx]
+
+            if any(output is None for output in reordered_loss_fn_outputs):
+                raise ValueError("Missing loss_fn_outputs after token-based reorder")
+            all_loss_fn_outputs = cast(List[Dict[str, Any]], reordered_loss_fn_outputs)
+        else:
+            all_loss_fn_outputs = [output for mb_outputs in loss_fn_outputs_by_microbatch for output in mb_outputs]
 
         return WorkerOutput(loss_fn_outputs=all_loss_fn_outputs, metrics=status)
 
